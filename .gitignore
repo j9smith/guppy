@@ -1,0 +1,8 @@
+fixtures/
+__pycache__
+.vscode/
+.clang-format
+.ruff_cache
+results.json
+results.png
+run_benchmark
