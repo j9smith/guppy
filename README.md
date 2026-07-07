@@ -25,3 +25,4 @@ running M64_N128_K512_g128_b4_s0         ... PASS  median=  0.0157 ms     532.81
 ## Resources
 - [Marlin](https://arxiv.org/abs/2408.11743)
 - [GPTQ](https://arxiv.org/abs/2210.17323)
+- [Siboehm's matmul worklog](https://siboehm.com/articles/22/CUDA-MMM)
