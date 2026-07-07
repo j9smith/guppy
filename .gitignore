@@ -6,3 +6,6 @@ __pycache__
 results.json
 results.png
 run_benchmark
+cmds.txt
+*.ncu-rep
+ncu-reports/
