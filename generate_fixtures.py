@@ -125,6 +125,54 @@ DEFAULT_FIXTURES = [
     dict(M=128, N=256, K=1024, group_size=128, num_bits=4, seed=1),
 ]
 
+# Boundary-case correctness fixtures. Small and cheap on purpose -- these exist to exercise
+# tile-edge / partial-tile code paths (padding, masking, predicated writes), not to be
+# representative of real workload scale. Add these once Stage 3a's TM/TN thread tiling is in,
+# since that's the code most likely to introduce an off-by-one at a boundary that a
+# clean-multiple-of-everything fixture would never touch.
+#   - M17: M is not a multiple of typical BM/TM tile sizes (17 is prime; won't divide evenly
+#     into any power-of-two tile).
+#   - N100: same idea for N/TN, using a non-power-of-two, non-multiple-of-32 value.
+#   - K192_g64: K spans 3 groups at group_size=64 (K % group_size == 0 but K > group_size,
+#     i.e. multiple chunks-per-group within one fixture, distinct from the K==group_size case
+#     your existing fixtures happen to hit).
+BOUNDARY_FIXTURES = [
+    dict(M=17, N=128, K=256, group_size=128, num_bits=4, seed=2),
+    dict(M=64, N=100, K=256, group_size=128, num_bits=4, seed=2),
+    dict(M=64, N=128, K=192, group_size=64, num_bits=4, seed=2),
+]
+
+# Benchmark-scale fixtures: realistic LLM prefill/decode sizes, plus the shapes already used for
+# the Marlin reference sweep (reference/marlin/marlin_speed_bench.cu) so the cumulative
+# GFLOPS-vs-stage chart is comparing apples to apples. These DO go through the full oracle --
+# at these sizes generate_fixture() costs a few seconds each (the dequantized fp32 weight
+# matrix for the 8192x8192 case is ~256MB, well within reach), so there's no reason to skip
+# real verification here the way we did for the Marlin-only speed harness.
+#
+# NOTE: two group_size=-1 (ungrouped / per-column scale) shapes from the original sweep are
+# omitted below -- generate_fixture() requires K % group_size == 0, which -1 breaks. Add them
+# back once/if the quantize/pack pipeline has a defined ungrouped mode.
+#
+# Hidden dims (4096, 11008, 8192) match Llama-family intermediate/hidden sizes. M sweep covers
+# decode (M=1, single-token autoregressive step) through prefill (M=1024, large-batch/long-
+# context prompt processing).
+BENCHMARK_SHAPES = [
+    # Decode-regime: small M, memory-bandwidth-bound rather than compute-bound.
+    dict(M=1, N=4096, K=4096, group_size=128, num_bits=4, seed=0),
+    dict(M=16, N=4096, K=4096, group_size=128, num_bits=4, seed=0),
+    # Mid-batch: transition zone between memory- and compute-bound.
+    dict(M=64, N=4096, K=4096, group_size=128, num_bits=4, seed=0),
+    dict(M=256, N=4096, K=4096, group_size=128, num_bits=4, seed=0),
+    # Prefill-regime: large M, compute-bound.
+    dict(M=1024, N=4096, K=4096, group_size=128, num_bits=4, seed=0),
+    # Wider FFN-style rectangular shapes (e.g. gate/up projections).
+    dict(M=16, N=4096, K=11008, group_size=128, num_bits=4, seed=0),
+    dict(M=256, N=4096, K=11008, group_size=128, num_bits=4, seed=0),
+    # Larger square-ish shapes.
+    dict(M=16, N=8192, K=8192, group_size=128, num_bits=4, seed=0),
+    dict(M=256, N=8192, K=8192, group_size=128, num_bits=4, seed=0),
+]
+
 
 def generate_all(out_root: Path = Path("fixtures"), specs=None) -> list:
     """Generate and save every fixture in `specs` (default DEFAULT_FIXTURES).
@@ -184,12 +232,29 @@ if __name__ == "__main__":
     parser.add_argument(
         "--clean", action="store_true", help="remove --out-dir before generating"
     )
+    parser.add_argument(
+        "--include-boundary",
+        action="store_true",
+        help="also generate BOUNDARY_FIXTURES (tile-edge / partial-tile cases)",
+    )
+    parser.add_argument(
+        "--include-benchmark",
+        action="store_true",
+        help="also generate BENCHMARK_SHAPES (prefill/decode-scale, oracle-verified; slower, "
+        "biggest fixture ~256MB dequantized weight matrix in-memory during generation)",
+    )
     args = parser.parse_args()
 
     if args.clean and args.out_dir.exists():
         shutil.rmtree(args.out_dir)
 
-    written = generate_all(args.out_dir)
+    specs = list(DEFAULT_FIXTURES)
+    if args.include_boundary:
+        specs += BOUNDARY_FIXTURES
+    if args.include_benchmark:
+        specs += BENCHMARK_SHAPES
+
+    written = generate_all(args.out_dir, specs=specs)
     print(f"wrote {len(written)} fixtures to {args.out_dir}/:")
     for d in written:
         print(f"  {d}")
