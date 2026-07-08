@@ -5,15 +5,14 @@
 #include <cuda_runtime.h>
 #include <cuda_fp16.h>
 
-#define TILE_M 64
-#define TILE_N 64
 #define BM 16
 #define BN 16
 // BK must divide evenly into group_size so that
 // each chunk stays within one group, requiring only
 // one scale per column. Must also be a multiple of
 // 8 to load packed weights
-#define BK 16 
+#define BK 16
+#define NUM_THREADS 256 // must match block size in kernel launch
 
 __global__ void w4a16_matmul_kernel(
     const half* __restrict__ activations, 
@@ -31,29 +30,31 @@ __global__ void w4a16_matmul_kernel(
     const uint i = blockIdx.y * blockDim.y + threadIdx.y;
 
     // Block local thread id, used for the cooperative loading phase
-    const uint block_tid = blockDim.x * threadIdx.y + threadIdx.x; 
+    const uint block_tid = blockDim.x * threadIdx.y + threadIdx.x;
 
     float acc = 0.0;
 
     for (int c = 0; c < num_chunks; c++) {
         // Load activations into smem
-        int chunk_act_row_id = block_tid / BK; // local row within acts chunk this thread loads
-        int chunk_act_col_id = block_tid % BK; // local col within acts chunk this thread loads
-        int glob_act_row_id = blockIdx.y * BM + chunk_act_row_id; // the global M row being loaded
-        int glob_act_col_id = c * BK + chunk_act_col_id; // the global K column being loaded (offset by chunk)
+        for (int idx = block_tid; idx < BM * BK; idx += NUM_THREADS) {
+            int chunk_act_row_id = idx / BK; // local row within acts chunk this thread loads
+            int chunk_act_col_id = idx % BK; // local col within acts chunk this thread loads
+            int glob_act_row_id = blockIdx.y * BM + chunk_act_row_id; // the global M row being loaded
+            int glob_act_col_id = c * BK + chunk_act_col_id; // the global K column being loaded (offset by chunk)
 
-        acts[block_tid] = activations[glob_act_row_id * K + glob_act_col_id];
-        
+            acts[idx] = activations[glob_act_row_id * K + glob_act_col_id];
+        }
+
         // Load weights into smem
-        if (block_tid < (BK * BN) / 8) { 
-            int chunk_w_row_id = block_tid / BN;
-            int chunk_w_col_id = block_tid % BN;
+        for (int idx = block_tid; idx < (BK * BN) / 8; idx += NUM_THREADS) {
+            int chunk_w_row_id = idx / BN;
+            int chunk_w_col_id = idx % BN;
 
             int glob_w_row_id = c * (BK / 8) + chunk_w_row_id;
             int glob_w_col_id = blockIdx.x * BN + chunk_w_col_id;
 
             int w_idx = glob_w_row_id * N + glob_w_col_id; 
-            weights[block_tid] = packed_qweight[w_idx];
+            weights[idx] = packed_qweight[w_idx];
         }
 
         // Load scales into smem
@@ -82,7 +83,10 @@ __global__ void w4a16_matmul_kernel(
         }
         __syncthreads();
     }
-    output[i * N + j] = __float2half(acc);
+
+    if (i < M && j < N) {
+        output[i * N + j] = __float2half(acc);
+    }
 }
 
 void launch_w4a16_matmul(
