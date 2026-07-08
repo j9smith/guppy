@@ -23,6 +23,10 @@ running M64_N128_K512_g128_b4_s0         ... PASS  median=  0.0157 ms     532.81
 ```
 
 ## Resources
-- [Marlin](https://arxiv.org/abs/2408.11743)
-- [GPTQ](https://arxiv.org/abs/2210.17323)
+- [Marlin paper](https://arxiv.org/abs/2408.11743)
+- [GPTQ paper](https://arxiv.org/abs/2210.17323)
 - [Siboehm's matmul worklog](https://siboehm.com/articles/22/CUDA-MMM)
+- [Aleksa Gordić's anatomy of high performance matmul kernels](https://www.aleksagordic.com/blog/matmul)
+- [Wafer's GPU perf engineering resources](https://github.com/wafer-ai/gpu-perf-engineering-resources)
+- [Pranjal Shankhdhar's Outperforming cuBLAS on H100 worklog](https://cudaforfun.substack.com/p/outperforming-cublas-on-h100-a-worklog)
+- [The Software Frontier's Mastering CUDA and HPC Series](https://www.thesoftwarefrontier.com/p/mastering-cuda-and-high-performance)
